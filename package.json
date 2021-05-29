@@ -1,27 +1,28 @@
 {
-  "name": "vscode-perl",
-  "license": "MIT",
-  "displayName": "vscode-perl",
-  "description": "",
+  "name": "perltidy-vscode",
+  "displayName": "perltidy-vscode",
+  "description": "VSCode extension for perltidy",
   "version": "0.0.1",
+  "publisher": "kimuson",
+  "author": "d-kimuson",
+  "repository": {
+    "type": "git",
+    "url": "FIXME"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "FIXME"
+  },
   "engines": {
     "vscode": "^1.56.0"
   },
   "categories": [
-    "Other"
+    "Formatters"
   ],
   "activationEvents": [
-    "onCommand:vscode-perl.helloWorld"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "vscode-perl.helloWorld",
-        "title": "Hello World"
-      }
-    ]
-  },
   "scripts": {
     "vscode:prepublish": "yarn run package",
     "typecheck": "tsc --noEmit -p .",
@@ -38,6 +39,36 @@
     "test-watch": "tsc -watch -p ./",
     "pretest": "yarn run test-compile && yarn run lint",
     "test": "node ./out/test/runTest.js"
+  },
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "perltidy",
+      "properties": {
+        "perltidy-vscode.enable": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource"
+        },
+        "perltidy-vscode.perltidyPath": {
+          "type": "string",
+          "default": null,
+          "scope": "resource"
+        },
+        "perltidy-vscode.configPath": {
+          "type": "string",
+          "default": null,
+          "scope": "resource"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "perltidy-vscode.forceFormatDocument",
+        "title": "Format document",
+        "when": "editorFocus"
+      }
+    ]
   },
   "devDependencies": {
     "@types/glob": "^7.1.3",
