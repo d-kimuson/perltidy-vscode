@@ -4,6 +4,14 @@ export function getCurrentFilePath(): string | undefined {
   return vscode.window.activeTextEditor?.document.uri.fsPath
 }
 
+export function getCurrentFileLanguage(): string | undefined {
+  return vscode.window.activeTextEditor?.document.languageId
+}
+
+export function getCurrentSelector(): string | undefined {
+  return vscode.window.activeTextEditor?.document.languageId
+}
+
 export function getActiveWorkspace(): vscode.WorkspaceFolder | undefined {
   const workspaces = vscode.workspace.workspaceFolders || []
 
@@ -15,11 +23,9 @@ export function getActiveWorkspace(): vscode.WorkspaceFolder | undefined {
 }
 
 export function getConfig<T>(key: string): T {
-  const conf = vscode.workspace.getConfiguration("ts-type-expand").get<T>(key)
-
-  if (!conf) {
-    throw new Error(`Make sure ${key} option has default value`)
-  }
+  const conf = vscode.workspace
+    .getConfiguration("perltidy-vscode")
+    .get<T>(key) as T
 
   return conf
 }
