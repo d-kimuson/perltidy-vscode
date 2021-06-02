@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import * as child_process from "child_process"
 import * as path from "path"
+import { diffChars } from "diff"
 
 export type PerlTidyEditProviderOptions = {
   enable: boolean
@@ -8,11 +9,27 @@ export type PerlTidyEditProviderOptions = {
   configPath?: string
 }
 
+export type FormatResult =
+  | {
+      content: string
+    }
+  | {
+      error: string
+    }
+
+export type FormatCache = {
+  filePath: string
+  version: number
+  result: FormatResult
+}
+
 export class PerlTidyEditProvider
   implements
     vscode.DocumentRangeFormattingEditProvider,
     vscode.DocumentFormattingEditProvider
 {
+  public static formatCache?: FormatCache = undefined
+
   public static options: PerlTidyEditProviderOptions
   constructor(private options: PerlTidyEditProviderOptions) {
     PerlTidyEditProvider.initialize(options)
@@ -43,8 +60,6 @@ async function getTextEditsAfterFormat(
   options: vscode.FormattingOptions,
   range?: vscode.Range
 ): Promise<vscode.TextEdit[]> {
-  const executable = PerlTidyEditProvider.options.perltidyPath ?? "perltidy"
-  const configPath = PerlTidyEditProvider.options.configPath
   const allRange = new vscode.Range(
     new vscode.Position(0, 0),
     new vscode.Position(
@@ -53,6 +68,70 @@ async function getTextEditsAfterFormat(
     )
   )
 
+  const formatResult = await getFormatText(document)
+
+  // フォーマットに失敗
+  if ("error" in formatResult) {
+    vscode.window.showErrorMessage("Failed format, Error: ", formatResult.error)
+
+    return []
+  }
+
+  // 全文フォーマット
+  if (!range) {
+    return [new vscode.TextEdit(allRange, formatResult.content)]
+  }
+
+  // 部分フォーマット
+  const diffs = diffChars(document.getText(), formatResult.content)
+
+  let wordCount = 0
+  const edits: vscode.TextEdit[] = []
+  diffs.forEach((diff) => {
+    const position = document.positionAt(wordCount)
+
+    if (range.contains(position)) {
+      if (diff.removed) {
+        const endPosition = document.positionAt(wordCount + diff.value.length)
+        edits.push(
+          new vscode.TextEdit(new vscode.Range(position, endPosition), "")
+        )
+      }
+
+      if (diff.added) {
+        edits.push(
+          new vscode.TextEdit(new vscode.Range(position, position), diff.value)
+        )
+      }
+    }
+
+    if (!diff.added) {
+      wordCount += diff.count ?? 0
+    }
+  })
+
+  return edits
+}
+
+async function getFormatText(
+  document: vscode.TextDocument
+): Promise<FormatResult> {
+  const cache = PerlTidyEditProvider.formatCache
+  if (cache) {
+    if (
+      cache?.filePath === document.uri.fsPath &&
+      cache?.version === document.version
+    ) {
+      return cache.result
+    } else {
+      PerlTidyEditProvider.formatCache = undefined
+    }
+  }
+
+  const executable = PerlTidyEditProvider.options.perltidyPath ?? "perltidy"
+  const configPath = PerlTidyEditProvider.options.configPath
+  const targetText = document.getText()
+
   const perltidy = child_process.spawn(
     executable,
     ["-st", "-se", configPath ? `-pro=${configPath}` : undefined].filter(
@@ -60,7 +139,7 @@ async function getTextEditsAfterFormat(
     ),
     { cwd: path.dirname(document.uri.fsPath) }
   )
-  perltidy.stdin.write(document.getText(range))
+  perltidy.stdin.write(targetText)
   perltidy.stdin.end()
 
   const resultBuffers: Buffer[] = []
@@ -73,44 +152,28 @@ async function getTextEditsAfterFormat(
     errorBuffers.push(data)
   })
 
-  return new Promise((resolve, reject) => {
-    try {
-      perltidy.stdout.on("end", () => {
-        if (errorBuffers.length !== 0) {
-          vscode.window.showErrorMessage(
-            "Failed format, Error: ",
-            errorBuffers.join("")
-          )
-          reject()
-          return
-        }
+  const result = await new Promise<FormatResult>((resolve) => {
+    perltidy.stdout.on("end", () => {
+      if (errorBuffers.length !== 0) {
+        resolve({
+          error: errorBuffers.join(""),
+        })
+        return
+      }
 
-        if (resultBuffers.length !== 0) {
-          // format 後のテキストを取得 + (rangeのときは)末尾改行コードの削除
-          let formatText = resultBuffers.join("")
-          formatText = !range?.isEqual(allRange)
-            ? formatText.replace(/(.*)\r?\n$/, "$1")
-            : formatText
-
-          if (formatText === "" && range) {
-            resolve([
-              new vscode.TextEdit(
-                new vscode.Range(
-                  new vscode.Position(range.start.line, range.start.character),
-                  new vscode.Position(range.end.line + 1, 0)
-                ),
-                formatText
-              ),
-            ])
-            return
-          }
-
-          resolve([new vscode.TextEdit(range ?? allRange, formatText)])
-        }
-      })
-    } catch (error) {
-      vscode.window.showErrorMessage("Failed format, Error: ", error)
-      reject()
-    }
+      if (resultBuffers.length !== 0) {
+        resolve({
+          content: resultBuffers.join(""),
+        })
+      }
+    })
   })
+
+  PerlTidyEditProvider.formatCache = {
+    filePath: document.uri.fsPath,
+    version: document.version,
+    result,
+  }
+
+  return result
 }
