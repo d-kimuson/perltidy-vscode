@@ -2,6 +2,7 @@ import * as vscode from "vscode"
 import * as child_process from "child_process"
 import * as path from "path"
 import { diffChars } from "diff"
+import { getActiveWorkspace } from "./util/vscode"
 
 export type PerlTidyEditProviderOptions = {
   enable: boolean
@@ -113,6 +114,17 @@ async function getTextEditsAfterFormat(
   return edits
 }
 
+function resolveRelativePath(filePath: string): string {
+  const workspace = getActiveWorkspace()
+  if (!workspace) {
+    return filePath
+  }
+
+  return filePath.startsWith("/")
+    ? filePath
+    : path.resolve(workspace.uri.fsPath, filePath)
+}
+
 async function getFormatText(
   document: vscode.TextDocument
 ): Promise<FormatResult> {
@@ -128,13 +140,19 @@ async function getFormatText(
     }
   }
 
-  const executable = PerlTidyEditProvider.options.perltidyPath ?? "perltidy"
-  const configPath = PerlTidyEditProvider.options.configPath
+  const { perltidyPath, configPath } = PerlTidyEditProvider.options
+
+  const executable = perltidyPath
+    ? resolveRelativePath(perltidyPath)
+    : "perltidy"
+  const configOption = configPath
+    ? `-pro=${resolveRelativePath(configPath)}`
+    : undefined
   const targetText = document.getText()
 
   const perltidy = child_process.spawn(
     executable,
-    ["-st", "-se", configPath ? `-pro=${configPath}` : undefined].filter(
+    ["-st", "-se", configOption].filter(
       (maybeString): maybeString is string => typeof maybeString !== "undefined"
     ),
     { cwd: path.dirname(document.uri.fsPath) }
